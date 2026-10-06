@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VidToAudio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232440E8'/%3E%3Cpath d='M6 16h2M10 11v10M14 7v18M18 12v8M22 9v14M26 15v2' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./" aria-label="VidToAudio, start over">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 16h2M9 11v10M14 6v20M19 12v8M24 9v14M28 15v2"/></svg>
+    VidToAudio
+  </a>
+  <label class="recent">
+    <span class="visually-hidden">Open a recent song</span>
+    <select id="recent"><option value="">Recent songs</option></select>
+  </label>
+</header>
+
+<main>
+  <!-- 1 ─ Source -->
+  <section class="step" id="step-source" data-n="1">
+    <h2>Video</h2>
+    <form id="fetch-form" class="fetch">
+      <label for="url" class="visually-hidden">Video link</label>
+      <input id="url" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+             placeholder="Paste a YouTube or Bilibili link" required>
+      <button type="submit" class="primary" id="fetch-btn">Get audio</button>
+    </form>
+    <p class="status" id="fetch-status" role="status" hidden></p>
+    <div class="inbox" id="inbox" hidden>
+      <p class="inbox-head">Or use a video on this Mac: drop it into
+        <button type="button" class="link" id="open-inbox"></button></p>
+      <ul id="inbox-list"></ul>
+      <p class="muted small-text" id="inbox-empty">Nothing there yet. A video shows up here as soon as you drop it in.</p>
+    </div>
+
+    <div id="source" hidden>
+      <div class="source-head">
+        <img id="thumb" alt="" width="128" height="72">
+        <div>
+          <p class="source-title" id="src-title"></p>
+          <p class="muted source-meta" id="src-meta"></p>
+        </div>
+      </div>
+
+      <div class="wave-wrap">
+        <canvas id="wave-full" class="wave" aria-label="Waveform of the whole video. Drag the two handles to choose the part you want."></canvas>
+      </div>
+      <audio id="listen" preload="auto"></audio>
+
+      <div class="cut">
+        <div class="transport">
+          <button type="button" class="round" id="listen-play" aria-label="Play">
+            <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
+            <svg viewBox="0 0 24 24" class="i-pause"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+          </button>
+          <span class="time" id="listen-time">0:00.0</span>
+        </div>
+        <div class="field time-field">
+          <label for="start">Start</label>
+          <div class="with-btn">
+            <input id="start" inputmode="decimal" autocomplete="off">
+            <button type="button" class="ghost small" data-set="start" title="Set start to where the playhead is">Here</button>
+          </div>
+        </div>
+        <div class="field time-field">
+          <label for="end">End</label>
+          <div class="with-btn">
+            <input id="end" inputmode="decimal" autocomplete="off">
+            <button type="button" class="ghost small" data-set="end" title="Set end to where the playhead is">Here</button>
+          </div>
+        </div>
+        <div class="field small-field">
+          <label for="fade-in">Fade in</label>
+          <span class="with-unit"><input id="fade-in" type="number" min="0" max="10" step="0.1" value="0.3"><span class="unit">s</span></span>
+        </div>
+        <div class="field small-field">
+          <label for="fade-out">Fade out</label>
+          <span class="with-unit"><input id="fade-out" type="number" min="0" max="15" step="0.5" value="2"><span class="unit">s</span></span>
+        </div>
+      </div>
+      <p class="hint">Drag the handles on the waveform or type times like <kbd>0:08</kbd> or <kbd>2:58.5</kbd>.
+        <button type="button" class="link" id="hear-start">Hear the start</button>
+        <button type="button" class="link" id="hear-end">Hear the last 5 seconds</button></p>
+
+      <div class="go">
+        <label class="select">
+          <span>Separation</span>
+          <select id="model"></select>
+        </label>
+        <button type="button" class="primary" id="prepare-btn">Make test takes</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 ─ Takes -->
+  <section class="step" id="step-takes" data-n="2" aria-disabled="true">
+    <h2>Takes</h2>
+    <p class="empty muted" id="takes-empty">Choose the part you want, then make test takes. Each take is the same 30 seconds processed a different way.</p>
+    <div id="prep" class="prep" hidden>
+      <ol id="prep-steps"></ol>
+    </div>
+    <div id="takes" hidden>
+      <ul class="notes" id="notes"></ul>
+
+      <div class="player">
+        <button type="button" class="round big" id="take-play" aria-label="Play">
+          <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
+          <svg viewBox="0 0 24 24" class="i-pause"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+        </button>
+        <div class="player-wave">
+          <canvas id="wave-range" class="wave short" aria-label="Your part. The shaded band is the 30 seconds the takes play; drag it to hear another section."></canvas>
+          <div class="player-meta">
+            <span class="time" id="take-time">0:00</span>
+            <span class="muted" id="window-label"></span>
+            <span class="muted level-read" id="level-read"></span>
+          </div>
+        </div>
+        <button type="button" class="hold" id="hold-original" title="Hold (or hold O) to hear the untouched original">Hold for original</button>
+      </div>
+
+      <div class="bench">
+        <div class="take-list">
+          <h3>Pick a take <span class="muted keys">Keys A–I switch, Space plays</span></h3>
+          <ul id="take-list" role="listbox" aria-label="Takes"></ul>
+        </div>
+        <div class="tune">
+          <div class="tune-head">
+            <h3>Fine-tune</h3>
+            <p class="muted" id="tune-from"></p>
+            <button type="button" class="ghost small" id="tune-reset">Back to take</button>
+          </div>
+          <div id="sliders"></div>
+          <fieldset class="levels">
+            <legend>Loudness</legend>
+            <div class="seg" id="levels"></div>
+            <p class="muted small-text" id="level-help"></p>
+          </fieldset>
+          <button type="button" class="ghost" id="save-clip">Save this 30-second clip</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 ─ Details -->
+  <section class="step" id="step-details" data-n="3" aria-disabled="true">
+    <h2>Song details</h2>
+    <div class="details">
+      <div class="fields">
+        <div class="field">
+          <label for="m-title">Song name</label>
+          <input id="m-title" autocomplete="off">
+          <button type="button" class="link" id="use-video-title">Use the video's title</button>
+        </div>
+        <div class="field">
+          <label for="m-artist">Artist</label>
+          <input id="m-artist" list="artists" autocomplete="off">
+          <datalist id="artists"></datalist>
+        </div>
+        <div class="field">
+          <label for="m-album">Album</label>
+          <input id="m-album" list="albums" autocomplete="off" placeholder="Songs with the same album sit together in Spotify">
+          <datalist id="albums"></datalist>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="m-album-artist">Album artist</label>
+            <input id="m-album-artist" autocomplete="off" placeholder="Same as artist">
+          </div>
+          <div class="field narrow">
+            <label for="m-year">Year</label>
+            <input id="m-year" inputmode="numeric" maxlength="4" autocomplete="off">
+          </div>
+          <div class="field narrow">
+            <label for="m-track">Track</label>
+            <input id="m-track" inputmode="numeric" autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <div class="cover">
+        <p class="label">Cover</p>
+        <div class="drop" id="drop" tabindex="0" role="button" aria-label="Add a cover picture: drop, paste or click to choose">
+          <canvas id="crop" hidden></canvas>
+          <div class="drop-empty" id="drop-empty">
+            <strong>Drop a picture here</strong>
+            <span class="muted">or paste it, or click to choose</span>
+          </div>
+        </div>
+        <input type="file" id="cover-file" accept="image/*" hidden>
+        <div class="cover-tools" id="cover-tools" hidden>
+          <div class="seg small" role="radiogroup" aria-label="How to make it square">
+            <button type="button" data-mode="crop" aria-pressed="true">Crop to square</button>
+            <button type="button" data-mode="fit" aria-pressed="false">Fit, blur the edges</button>
+          </div>
+          <label class="zoom" id="zoom-wrap">Zoom <input type="range" id="zoom" min="1" max="4" step="0.01" value="1"></label>
+          <button type="button" class="link" id="cover-clear">Remove</button>
+        </div>
+        <button type="button" class="link" id="use-thumb" hidden>Use the video thumbnail</button>
+        <div class="spotify-row" id="spotify-row" hidden>
+          <canvas id="cover-out" width="128" height="128"></canvas>
+          <div>
+            <p class="sp-title" id="sp-title">Song name</p>
+            <p class="sp-artist" id="sp-artist">Artist</p>
+            <p class="muted small-text" id="cover-spec"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 ─ Save -->
+  <section class="step" id="step-save" data-n="4" aria-disabled="true">
+    <h2>Save</h2>
+    <div class="save">
+      <fieldset class="formats">
+        <legend>File type</legend>
+        <label class="choice"><input type="radio" name="fmt" value="mp3" checked>
+          <span><strong>MP3, 320 kbps</strong><span class="muted">Spotify shows the cover on computer and phone. Best for Spotify.</span></span></label>
+        <label class="choice"><input type="radio" name="fmt" value="m4a">
+          <span><strong>M4A, AAC 256 kbps</strong><span class="muted">Like your September files. Spotify's phone app often skips M4A covers.</span></span></label>
+      </fieldset>
+      <div class="field folder">
+        <label for="out-dir">Save to folder</label>
+        <div class="with-btn">
+          <input id="out-dir" autocomplete="off" spellcheck="false">
+          <button type="button" class="ghost small" id="choose-folder">Choose…</button>
+        </div>
+      </div>
+      <div class="go">
+        <p class="muted" id="save-summary"></p>
+        <button type="button" class="primary" id="export-btn">Make the full song</button>
+      </div>
+      <p class="status" id="export-status" role="status" hidden></p>
+      <div class="result" id="result" hidden>
+        <img id="result-cover" alt="" width="72" height="72">
+        <div class="result-body">
+          <p class="result-name" id="result-name"></p>
+          <p class="muted" id="result-facts"></p>
+          <audio id="result-audio" controls preload="none"></audio>
+          <div class="result-actions">
+            <button type="button" class="ghost small" id="reveal">Show in Finder</button>
+            <button type="button" class="link" id="forget">Delete working files</button>
+          </div>
+          <details class="spotify-help">
+            <summary>Getting it into Spotify</summary>
+            <ol>
+              <li>Spotify on this Mac: Settings, then Your Library, turn on <em>Show Local Files</em>.</li>
+              <li>Under <em>Show songs from</em>, add the folder above (once).</li>
+              <li>The song appears in Your Library under <em>Local Files</em>. Add it to a playlist.</li>
+              <li>On your phone: download that playlist while on the same Wi-Fi as the Mac.</li>
+            </ol>
+          </details>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<p class="toast" id="toast" role="alert" hidden></p>
+<script type="module" src="app.js"></script>
+</body>
+</html>

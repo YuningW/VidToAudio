@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Everything the app downloads and makes: songs, stems, covers, settings.
+# This repo is public: audio and pictures must never be committed.
+work/
+*.mp3
+*.m4a
+*.mp4
+*.webm
+*.wav
+*.flac
+*.opus
+*.jpg
+*.jpeg
+*.png
+*.webp
+.DS_Store
+* 2.*

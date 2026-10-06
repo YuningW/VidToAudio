@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>engine parity</title>
+<pre id="out">running</pre>
+<script type="module">
+  // Renders each case offline with the browser engine and posts the samples
+  // back, so tests/parity.py can compare them with ffmpeg's render.
+  import { buildGraph, applyParams, integratedLufs } from "/engine.js";
+  const send = (body) => fetch("/tests-result", { method: "POST", headers: { "x-vta": "1" }, body: JSON.stringify(body) });
+  window.addEventListener("error", (e) => send({ error: String(e.message) }));
+  window.addEventListener("unhandledrejection", (e) => send({ error: String(e.reason) }));
+  const q = new URLSearchParams(location.search);
+  const job = q.get("job"), start = +q.get("start"), len = +q.get("len");
+  const cases = JSON.parse(q.get("cases"));
+  const cfg = await (await fetch("/api/config")).json();
+  const defaults = Object.fromEntries(cfg.params.map((p) => [p.key, p.default]));
+  const ctx0 = new OfflineAudioContext(2, 1, cfg.sr);
+  const bufs = {};
+  for (const s of cfg.stems) {
+    const r = await fetch(`/api/jobs/${job}/stem/${s}?start=${start}&length=${len}`);
+    bufs[s] = await ctx0.decodeAudioData(await r.arrayBuffer());
+  }
+  const b64 = (f32) => {
+    const u8 = new Uint8Array(f32.buffer);
+    let s = "";
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  };
+  const result = {};
+  for (const [name, p] of Object.entries(cases)) {
+    const n0 = bufs[cfg.stems[0]].length;
+    const off = new OfflineAudioContext(2, n0, cfg.sr);
+    const g = buildGraph(off, cfg);
+    applyParams(g, { ...defaults, ...p }, off, false);
+    for (const s of cfg.stems) {
+      const src = off.createBufferSource();
+      src.buffer = bufs[s];
+      src.connect(g.inputs[s]);
+      src.start();
+    }
+    g.out.connect(off.destination);
+    const out = await off.startRendering();
+    result[name] = { lufs: integratedLufs(out), L: b64(out.getChannelData(0)), R: b64(out.getChannelData(1)) };
+  }
+  await send(result);
+</script>

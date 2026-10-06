@@ -1,0 +1,11 @@
+# Python 3.12 (PyTorch has no wheels for 3.13+ on every platform yet)
+audio-separator[cpu]==0.47.0
+audioread>=3.0
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+yt-dlp>=2026.8.19
+mutagen>=1.47
+pillow>=11
+numpy>=2
+soundfile>=0.12
