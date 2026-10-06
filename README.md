@@ -26,9 +26,11 @@ Terminal window to stop it.
    the waveform (or type times like `0:08` and `2:58.5`) to choose the part
    you want. *Hear the start* and *Hear the last 5 seconds* check the cut
    points. Fade in and out avoid clicks where you cut mid-song.
-2. **Takes:** *Make test takes* separates your part into voice, echo,
-   drums, bass and everything else (crowd, room, keys, guitars). That takes
-   about a minute with *Standard*, or about 3 minutes with *Best quality*.
+2. **Takes:** *Make test takes* separates your part into screams & cheering,
+   voice, echo, drums, bass and everything else (room, keys, guitars). That
+   takes about a minute and a half with *Standard*, or about 3 minutes with
+   *Best quality*. Untick *Separate screams & cheering* to skip the crowd
+   model (about 30 seconds faster).
    Then press play and switch takes while it plays: click a take or press
    **A–I**. Every take is matched in loudness, so you hear the difference
    in processing, not volume. Hold **O** (or the *Hold for original* button)
@@ -65,10 +67,16 @@ The numbers follow what you picked in September ("other at 65", "deverb 55").
 | F | Voice forward | Voice +3 dB, crowd 80%, clarity +1.5 dB |
 | G | Smooth the highs | −5 dB at 6.5 kHz, air −3 dB. Your Please Be Mine fix. |
 | H | Open up dull audio | Low end −4, clarity +3, air +5 dB. Your Hook fix. |
-| I | Strong clean-up | Crowd 50%, echo 45%, width 85% |
+| I | Strong clean-up | Screams 25%, crowd 50%, echo 45%, width 85% |
+| J | Scream cut | Screams & cheering 35%. Leaves the music alone. |
+| K | Scream cut + less echo | Screams 35%, echo 55% |
+
+J and K need the crowd model, so songs separated without it don't show them.
+New takes are only ever added at the end, so a letter always means the same
+take.
 
 The diagnosis above the takes measures the part you chose and marks up to
-three takes as **Suggested**. It flags crowd share, echo, clipping, stinging or
+three takes as **Suggested**. It flags screaming, crowd share, echo, clipping, stinging or
 muffled highs, low-quality uploads and fake-wide stereo. It's a starting point; your ears decide.
 
 **Loudness:** *Natural* (−13 LUFS) keeps the live dynamics. *Match September*
@@ -110,10 +118,14 @@ re-add the folder source. Spotify caches local-file art.
   and backs off when Bilibili refuses with HTTP 412, takes only the video
   from YouTube radio (`&list=RD…`) links, and skips YouTube's
   dynamic-range-compressed audio copies.
-- `vta/separate.py`: Demucs (htdemucs / htdemucs_ft) for voice, drums and
-  bass, then UVR-DeEcho-DeReverb on the voice. Two stems are taken by
-  subtraction (other = original − voice − drums − bass, echo = voice − dry
-  voice), so all stems at 100% add up to the original exactly. It refuses
+- `vta/separate.py`: UVR-MDX-NET Crowd HQ 1 takes the audience off first.
+  Screams are human voices, so without it Demucs files many of them under
+  voice, out of reach of the crowd slider. Then Demucs (htdemucs /
+  htdemucs_ft) splits the crowd-free sound into voice, drums and bass, and
+  UVR-DeEcho-DeReverb takes the echo off the voice. Three stems are taken by
+  subtraction (screams = original − crowd-free, other = crowd-free − voice −
+  drums − bass, echo = voice − dry voice), so all stems at 100% add up to the
+  original exactly. It refuses
   silent results, the failure the MelBand Roformer models showed in September.
 - `vta/mix.py`: stem gains → mid/side width → RBJ EQ (110 Hz, 300 Hz,
   2.8 kHz, 6.5 kHz, 10 kHz) → two-pass loudness → limiter → MP3 (LAME) or

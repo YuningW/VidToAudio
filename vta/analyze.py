@@ -7,6 +7,11 @@ They only decide which takes get a star. Every take is always offered.
 import numpy as np
 import soundfile as sf
 
+# Share of the energy the crowd model calls audience (dB). Calibrated on the
+# Manila Kissin' Out of Dream and 260125 Hook fancams (see git log).
+SCREAMS_LOUD = -8.0
+SCREAMS_SOME = -14.0
+
 BANDS = {
     "low": (20, 120), "lowmid": (120, 500), "mid": (500, 1500),
     "presence": (1500, 3000), "upper": (3000, 5000), "harsh": (5000, 8000),
@@ -94,8 +99,19 @@ def diagnose(src, loud, stems, bitrate=None):
                               + ". Heavy cleaning will sound watery. Stay gentle."})
     if loud["true_peak"] > -0.1:
         notes.append({"tone": "warn", "title": "Peaks clip",
-                      "text": f"Peaks hit {loud['true_peak']:+.1f} dB. Every take fixes this."})
+                      "text": f"Peaks hit {round(loud['true_peak'], 1) + 0.0:+.1f} dB. Every take fixes this."})
 
+    echo_gap_pre = stems["vocals_dry"] - stems["vocals_rev"]
+    if stems.get("crowd_model") and "crowd" in stems:
+        scream_share = stems["crowd"] - stems["original"]
+        pct = f"{100 * 10 ** (scream_share / 10):.0f}%"
+        if scream_share > SCREAMS_LOUD:
+            notes.append({"tone": "info", "title": "Loud screaming & cheering",
+                          "text": f"The crowd model hears {pct} of the sound as audience."})
+            stars.append("screamsecho" if echo_gap_pre < 9 and not low_quality else "screams")
+        elif scream_share > SCREAMS_SOME:
+            notes.append({"tone": "info", "title": "Some screaming & cheering",
+                          "text": f"The crowd model hears {pct} of the sound as audience. Compare J with A."})
     live = crowd_share > -9
     share = f"{100 * 10 ** (crowd_share / 10):.0f}% of the sound is outside voice, drums and bass"
     if live:
@@ -152,6 +168,8 @@ def diagnose(src, loud, stems, bitrate=None):
         "numbers": {
             "lufs": loud["lufs"], "true_peak": loud["true_peak"], "lra": loud["lra"],
             "crowd_share_db": round(crowd_share, 1), "echo_gap_db": round(echo_gap, 1),
-            "voice_share_db": round(voice_share, 1), **src,
+            "voice_share_db": round(voice_share, 1),
+            "scream_share_db": round(stems["crowd"] - stems["original"], 1) if "crowd" in stems else None,
+            **src,
         },
     }

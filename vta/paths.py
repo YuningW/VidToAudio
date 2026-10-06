@@ -21,6 +21,7 @@ DEFAULT_SETTINGS = {
     "cover_size": 640,        # px, square
     "level": "natural",       # see mix.LEVELS
     "model": "htdemucs",      # htdemucs | htdemucs_ft
+    "crowd": True,            # run the crowd model (screams & cheering stem)
     "artists": [],            # remembered for the artist field
     "albums": [],
 }

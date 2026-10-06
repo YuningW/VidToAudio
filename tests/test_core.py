@@ -28,18 +28,21 @@ def tone(freq, secs, amp=0.2, pan=0.0, sr=SR):
     return np.stack([x * (1 - pan), x * (1 + pan)], axis=1)
 
 
-def make_stems(d, secs=8.0):
-    """Five stems with distinct content, written like separate.py does."""
+def make_stems(d, secs=8.0, crowd=True):
+    """Six stems with distinct content, written like separate.py does."""
     st = d / "stems"
     st.mkdir(parents=True)
     rng = np.random.default_rng(1)
     stems = {
+        "crowd": (rng.standard_normal((int(secs * SR), 2)) * 0.02).astype(np.float32),
         "vocals_dry": tone(440, secs, 0.2),
         "vocals_rev": tone(660, secs, 0.05, pan=0.6),
         "drums": tone(90, secs, 0.1),
         "bass": tone(55, secs, 0.15),
         "other": (rng.standard_normal((int(secs * SR), 2)) * 0.03).astype(np.float32),
     }
+    if not crowd:
+        stems.pop("crowd")
     for k, x in stems.items():
         sf.write(st / f"{k}.flac", x, SR, subtype="PCM_24")
     return stems
@@ -109,10 +112,19 @@ class Mix(unittest.TestCase):
     def test_crowd_and_echo_scale_their_stems(self):
         stems = make_stems(self.d)
         out = self.d / "pre.wav"
-        mix.render_pre(self.d, mix.full_params({"crowd": 50, "echo": 0, "vocal": 6}), out)
+        mix.render_pre(self.d, mix.full_params({"crowd": 50, "echo": 0, "vocal": 6, "screams": 20}), out)
         got, _ = sf.read(out, dtype="float32", always_2d=True)
         v = 10 ** (6 / 20)
-        want = stems["vocals_dry"] * v + stems["drums"] + stems["bass"] + stems["other"] * 0.5
+        want = stems["crowd"] * 0.2 + stems["vocals_dry"] * v + stems["drums"] + stems["bass"] + stems["other"] * 0.5
+        n = min(len(got), len(want))
+        self.assertLess(np.max(np.abs(got[:n] - want[:n])), 1e-4)
+
+    def test_songs_separated_before_the_crowd_model_still_work(self):
+        stems = make_stems(self.d, crowd=False)
+        out = self.d / "pre.wav"
+        mix.render_pre(self.d, mix.full_params({"screams": 30}), out)   # no crowd stem: silent
+        got, _ = sf.read(out, dtype="float32", always_2d=True)
+        want = sum(stems.values())
         n = min(len(got), len(want))
         self.assertLess(np.max(np.abs(got[:n] - want[:n])), 1e-4)
 
@@ -126,8 +138,9 @@ class Mix(unittest.TestCase):
     def test_eq_boosts_its_band(self):
         make_stems(self.d)
         flat, boosted = self.d / "a.wav", self.d / "b.wav"
-        mix.render_pre(self.d, mix.full_params({"vocal": -60, "echo": 0, "drums": 0, "bass": 0, "crowd": 100}), flat)
-        mix.render_pre(self.d, mix.full_params({"vocal": -60, "echo": 0, "drums": 0, "bass": 0, "crowd": 100, "air": 6}), boosted)
+        only_other = {"vocal": -60, "echo": 0, "drums": 0, "bass": 0, "crowd": 100, "screams": 0}
+        mix.render_pre(self.d, mix.full_params(only_other), flat)
+        mix.render_pre(self.d, mix.full_params({**only_other, "air": 6}), boosted)
         a = analyze.measure_source(flat)["bands"]
         b = analyze.measure_source(boosted)["bands"]
         # relative to the loudest band, the top gets louder and the lows get quieter
@@ -218,6 +231,29 @@ class CoverAndTags(unittest.TestCase):
             streams = media.probe(out)["streams"]
             pics = [s for s in streams if s.get("disposition", {}).get("attached_pic")]
             self.assertEqual(len(pics), 1)
+
+
+class Screams(unittest.TestCase):
+    def test_loud_screaming_suggests_the_scream_takes(self):
+        src = {"cutoff_hz": 19000, "harsh_bump": -5, "air_vs_mid": -10, "mono_fold_db": -0.5}
+        loud = {"lufs": -14, "true_peak": -1, "lra": 7}
+        stems = {"crowd": -19, "other": -24, "original": -15, "vocals_dry": -22, "vocals_rev": -26,
+                 "vocals": -21, "crowd_model": True}
+        d = analyze.diagnose(src, loud, stems, 150)
+        self.assertEqual(d["suggested"][0], "screamsecho")
+        stems["vocals_rev"] = -40
+        self.assertEqual(analyze.diagnose(src, loud, stems, 150)["suggested"][0], "screams")
+
+    def test_take_letters_never_move(self):
+        # "go with C" must mean the same take forever: only ever append new takes
+        ids = [p["id"] for p in mix.PRESETS]
+        self.assertEqual(ids[:11], ["original", "crowd80", "crowd65", "echo55", "echo55crowd65",
+                                    "voice", "smooth", "open", "strong", "screams", "screamsecho"])
+
+    def test_scream_takes_only_change_screams_and_echo(self):
+        ids = {p["id"]: p for p in mix.PRESETS}
+        self.assertEqual(set(ids["screams"]["set"]), {"screams"})
+        self.assertEqual(ids["screams"]["needs"], "crowd")
 
 
 class Separation(unittest.TestCase):

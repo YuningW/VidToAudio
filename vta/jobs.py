@@ -269,7 +269,7 @@ def _peaks(audio, dur, buckets=3000):
 
 # ---------------------------------------------------------------- prepare
 
-def prepare(jid, start, end, model="htdemucs"):
+def prepare(jid, start, end, model="htdemucs", crowd=True):
     job = load(jid)
     if job.get("state") == "fetching":
         raise JobError("Still downloading.")
@@ -283,17 +283,17 @@ def prepare(jid, start, end, model="htdemucs"):
     _begin(jid, "preparing")
     update(jid, range={"start": round(start, 2), "end": round(end, 2)}, model=model,
            label="Cutting your part")
-    _run(jid, _prepare, start, end, model)
+    _run(jid, _prepare, start, end, model, bool(crowd))
 
 
 def separate_models():
     return {"htdemucs": "Standard (about 1 minute)", "htdemucs_ft": "Best quality (about 3 minutes, a bit cleaner)"}
 
 
-def _prepare(jid, start, end, model):
+def _prepare(jid, start, end, model, crowd):
     d = job_dir(jid)
     job = load(jid)
-    key = f"{start:.2f}-{end:.2f}-{model}"
+    key = f"{start:.2f}-{end:.2f}-{model}" + ("-crowd" if crowd else "")
     stems_ok = all(p.exists() for p in mix.stem_paths(d)) and job.get("prepared_key") == key
     if not stems_ok:
         media.run(["-i", str(d / job["source"]), "-map", "0:a:0", "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
@@ -306,7 +306,7 @@ def _prepare(jid, start, end, model):
             update(jid, label="Waiting for another song to finish separating")
             _sep_gate.acquire()
         try:
-            stats = _separate(jid, d, model)
+            stats = _separate(jid, d, model, crowd)
         finally:
             _sep_gate.release()
         (d / "range.wav").unlink(missing_ok=True)   # the stems hold everything now
@@ -320,8 +320,8 @@ def _prepare(jid, start, end, model):
            preview={"start": round(win, 1), "length": min(30.0, length)}, stem_stats=stats)
 
 
-def _separate(jid, d, model):
-    proc = subprocess.Popen([sys.executable, "-m", "vta.separate", str(d), model],
+def _separate(jid, d, model, crowd):
+    proc = subprocess.Popen([sys.executable, "-m", "vta.separate", str(d), model, "crowd" if crowd else "nocrowd"],
                             cwd=str(paths.ROOT), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     result, error = None, None
     for line in proc.stdout:
@@ -347,6 +347,7 @@ def clip_wav(jid, stem, start, length):
     """A stretch of one stem as 16-bit WAV bytes, for the browser to play."""
     if stem not in mix.STEMS:
         raise JobError("Unknown stem.")
+    mix.ensure_stems(job_dir(jid))
     path = job_dir(jid) / "stems" / f"{stem}.flac"
     with sf.SoundFile(path) as f:
         sr = f.samplerate

@@ -94,6 +94,10 @@
           <span>Separation</span>
           <select id="model"></select>
         </label>
+        <label class="check" title="Runs a model trained on audience noise first. Adds about 40 seconds.">
+          <input type="checkbox" id="crowd-model">
+          <span>Separate screams &amp; cheering</span>
+        </label>
         <button type="button" class="primary" id="prepare-btn">Make test takes</button>
       </div>
     </div>
@@ -127,7 +131,7 @@
 
       <div class="bench">
         <div class="take-list">
-          <h3>Pick a take <span class="muted keys">Keys A–I switch, Space plays</span></h3>
+          <h3>Pick a take <span class="muted keys" id="keys-hint"></span></h3>
           <ul id="take-list" role="listbox" aria-label="Takes"></ul>
         </div>
         <div class="tune">

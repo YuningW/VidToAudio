@@ -10,11 +10,13 @@ approve in the browser is the take you get on disk.
 
 Stems (each 44.1 kHz stereo, all the same length, and they add up exactly to
 the original):
+  crowd       screams and cheering (crowd model; silent for songs separated
+              before it existed)
   vocals_dry  the voice with the echo taken off
   vocals_rev  the echo that came off the voice   (= vocals - vocals_dry)
   drums, bass
-  other       everything else: crowd, room, keys, guitars
-              (= original - vocals - drums - bass)
+  other       everything else: room, keys, guitars, leftover crowd
+              (= original - crowd - vocals - drums - bass)
 """
 import math
 import shutil
@@ -23,12 +25,14 @@ from pathlib import Path
 
 from . import media
 
-STEMS = ["vocals_dry", "vocals_rev", "drums", "bass", "other"]
+STEMS = ["crowd", "vocals_dry", "vocals_rev", "drums", "bass", "other"]
 
 # key, label, unit, min, max, step, default, group, help
 PARAMS = [
+    ("screams", "Screams & cheering", "%", 0, 120, 5, 100, "clean",
+     "What the crowd model heard as audience: screams, cheers, clapping."),
     ("crowd", "Crowd & backing", "%", 0, 120, 5, 100, "clean",
-     "Everything that isn't voice, drums or bass: cheering, room noise, keys, guitars."),
+     "Everything that isn't voice, drums or bass: room noise, keys, guitars, leftover crowd."),
     ("echo", "Echo on the voice", "%", 0, 100, 5, 100, "clean",
      "How much of the hall's echo stays on the voice."),
     ("width", "Stereo width", "%", 0, 150, 5, 100, "clean",
@@ -98,8 +102,14 @@ PRESETS = [
      "about": "Less boom, more clarity and air for muffled phone recordings. Your Hook fix.",
      "set": {"low": -4, "clarity": 3, "air": 5}},
     {"id": "strong", "name": "Strong clean-up",
-     "about": "Crowd 50%, echo 45%, a little narrower. The far end of the ladder.",
-     "set": {"crowd": 50, "echo": 45, "width": 85, "vocal": 1.5}},
+     "about": "Screams 25%, crowd 50%, echo 45%, a little narrower. The far end of the ladder.",
+     "set": {"screams": 25, "crowd": 50, "echo": 45, "width": 85, "vocal": 1.5}},
+    {"id": "screams", "name": "Scream cut",
+     "about": "Screams & cheering down to 35%. Leaves the music alone.",
+     "set": {"screams": 35}, "needs": "crowd"},
+    {"id": "screamsecho", "name": "Scream cut + less echo",
+     "about": "Screams 35% and echo 55%, for loud halls full of fans.",
+     "set": {"screams": 35, "echo": 55}, "needs": "crowd"},
 ]
 
 
@@ -114,6 +124,7 @@ def full_params(p=None):
 def stem_gains(p):
     v = 10 ** (p["vocal"] / 20)
     return {
+        "crowd": p["screams"] / 100,
         "vocals_dry": v,
         "vocals_rev": v * p["echo"] / 100,
         "drums": p["drums"] / 100,
@@ -158,8 +169,21 @@ def stem_paths(job_dir):
     return [d / f"{name}.flac" for name in STEMS]
 
 
+def ensure_stems(job_dir):
+    """Songs separated before the crowd model have no crowd stem: add a silent one."""
+    import numpy as np
+    import soundfile as sf
+    d = Path(job_dir) / "stems"
+    crowd = d / "crowd.flac"
+    ref = d / "vocals_dry.flac"
+    if not crowd.exists() and ref.exists():
+        info = sf.info(ref)
+        sf.write(crowd, np.zeros((info.frames, info.channels), "float32"), info.samplerate, subtype="PCM_24")
+
+
 def render_pre(job_dir, p, out_wav, start=None, dur=None):
     """Mix + width + EQ, no level change yet, to a float WAV."""
+    ensure_stems(job_dir)
     args = []
     for path in stem_paths(job_dir):
         if start is not None:

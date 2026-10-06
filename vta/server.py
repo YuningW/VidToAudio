@@ -118,12 +118,13 @@ class PrepareIn(BaseModel):
     start: float
     end: float
     model: str = "htdemucs"
+    crowd: bool = True
 
 
 @app.post("/api/jobs/{jid}/prepare")
 def prepare(jid: str, body: PrepareIn):
-    jobs.prepare(jid, body.start, body.end, body.model)
-    paths.save_settings({"model": body.model})
+    jobs.prepare(jid, body.start, body.end, body.model, body.crowd)
+    paths.save_settings({"model": body.model, "crowd": body.crowd})
     return jobs.load(jid)
 
 

@@ -8,6 +8,7 @@ const PREP_STEPS = [
   "Cutting your part",
   "Measuring the original",
   "Loading the separation models",
+  "Separating screams and cheering",
   "Separating voice, drums and bass",
   "Taking the echo off the voice",
   "Saving stems",
@@ -105,6 +106,8 @@ async function boot() {
 }
 
 function buildModelSelect() {
+  $("crowd-model").checked = S.settings.crowd !== false;
+  $("crowd-model").addEventListener("change", () => rangeChanged(false));
   const sel = $("model");
   for (const [k, label] of Object.entries(S.cfg.models)) sel.add(new Option(label, k, false, k === S.settings.model));
 }
@@ -246,7 +249,7 @@ function wire() {
     if (e.code === "Space") { e.preventDefault(); $("listen").pause(); engine.toggle(); tick(); return; }
     if (e.key.toLowerCase() === "o") { if (!e.repeat) holdOn(); return; }
     const i = LETTERS.indexOf(e.key.toUpperCase());
-    if (i >= 0 && i < S.cfg.presets.length) { selectTake(S.cfg.presets[i].id); }
+    if (i >= 0 && i < S.cfg.presets.length && takeAvailable(S.cfg.presets[i])) { selectTake(S.cfg.presets[i].id); }
   });
   document.addEventListener("keyup", (e) => { if (e.key.toLowerCase() === "o") holdOff(); });
 
@@ -479,8 +482,9 @@ function rangeChanged(save = true) {
   if (!S.job) return;
   const [s, e] = waveFull.sel;
   const prepared = S.job.prepared_key && S.job.range;
-  const same = prepared && Math.abs(prepared.start - s) < 0.05 && Math.abs(prepared.end - e) < 0.05;
-  $("prepare-btn").textContent = prepared && !same ? "Make takes for the new part" : prepared ? "Make takes again" : "Make test takes";
+  const sameCrowd = (S.job.prepared_key || "").endsWith("-crowd") === $("crowd-model").checked;
+  const same = prepared && sameCrowd && Math.abs(prepared.start - s) < 0.05 && Math.abs(prepared.end - e) < 0.05;
+  $("prepare-btn").textContent = prepared && !same ? (sameCrowd ? "Make takes for the new part" : "Make takes again with this setting") : prepared ? "Make takes again" : "Make test takes";
   if (save) saveUi();
   updateSummary();
 }
@@ -509,7 +513,7 @@ async function prepare() {
   engine.pause();
   $("prepare-btn").disabled = true;
   try {
-    await api(`/api/jobs/${S.job.id}/prepare`, { method: "POST", body: { start, end, model: $("model").value } });
+    await api(`/api/jobs/${S.job.id}/prepare`, { method: "POST", body: { start, end, model: $("model").value, crowd: $("crowd-model").checked } });
     S.takesKey = null;
     $("step-takes").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
     watch(S.job.id);
@@ -553,10 +557,22 @@ async function showTakes(job) {
   engine.warm(S.cfg.presets.map((p) => p.set));
 }
 
+function hasCrowd() { return !!S.job?.stem_stats?.crowd_model; }
+
+function takeAvailable(p) { return p.needs !== "crowd" || hasCrowd(); }
+
 function renderTakeList(a) {
   const ul = $("take-list");
   ul.innerHTML = "";
+  const shown = S.cfg.presets.filter(takeAvailable);
+  $("keys-hint").textContent = `Keys A–${LETTERS[S.cfg.presets.indexOf(shown[shown.length - 1])]} switch, Space plays`;
+  const scr = $("p-screams").closest(".slider");
+  scr.classList.toggle("unavailable", !hasCrowd());
+  $("p-screams").disabled = !hasCrowd();
+  $("h-screams").textContent = hasCrowd() ? S.cfg.params.find((x) => x.key === "screams").help
+    : "Make takes again with “Separate screams & cheering” ticked to use this.";
   S.cfg.presets.forEach((p, i) => {
+    if (!takeAvailable(p)) return;
     const li = document.createElement("li");
     li.className = "take";
     li.setAttribute("role", "option");
@@ -583,7 +599,8 @@ function describe(key, v) {
 }
 
 function selectTake(id, params = null) {
-  const preset = S.cfg.presets.find((p) => p.id === id) || S.cfg.presets[0];
+  let preset = S.cfg.presets.find((p) => p.id === id) || S.cfg.presets[0];
+  if (!takeAvailable(preset)) preset = S.cfg.presets[0];
   S.takeId = preset.id;
   S.params = { ...S.defaults, ...preset.set, ...(params || {}) };
   for (const li of document.querySelectorAll(".take")) li.setAttribute("aria-selected", String(li.dataset.id === preset.id));

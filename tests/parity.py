@@ -26,7 +26,7 @@ from vta import jobs, media, mix, paths  # noqa: E402
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 PORT = 8779
 CASES = {p["id"]: p["set"] for p in mix.PRESETS}
-CASES["everything"] = {"crowd": 70, "echo": 40, "width": 60, "vocal": 2, "clarity": 3,
+CASES["everything"] = {"screams": 40, "crowd": 70, "echo": 40, "width": 60, "vocal": 2, "clarity": 3,
                        "harsh": -6, "air": 4, "mud": -3, "low": -4, "drums": 120, "bass": 80}
 
 

@@ -8,6 +8,7 @@ const LIMIT_DB = 20 * Math.log10(0.8); // same ceiling as the export (-1.94 dB)
 export function stemGains(p) {
   const v = Math.pow(10, p.vocal / 20);
   return {
+    crowd: p.screams / 100,
     vocals_dry: v,
     vocals_rev: (v * p.echo) / 100,
     drums: p.drums / 100,
