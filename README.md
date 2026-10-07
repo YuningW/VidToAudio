@@ -31,11 +31,15 @@ Terminal window to stop it.
    takes about a minute and a half with *Standard*, or about 3 minutes with
    *Best quality*. Untick *Separate screams & cheering* to skip the crowd
    model (about 30 seconds faster).
-   Then press play and switch takes while it plays: click a take or press
-   **A–I**. Every take is matched in loudness, so you hear the difference
-   in processing, not volume. Hold **O** (or the *Hold for original* button)
-   to hear the untouched audio. Drag the shaded band to audition another
-   30 seconds.
+   Click a take or press its letter: it plays from the **marker** (▼ on the
+   waveform), so every take is heard on the same words. Click the waveform to
+   move the marker, or drag across it to **loop one phrase**. Tick the takes
+   you're deciding between and press **Play in turn**: the phrase plays once
+   in each, round and round, with the name of the one playing shown under the
+   waveform. Every take is matched in loudness, so you hear the difference in
+   processing, not volume. Hold **O** (or *Hold for original*) to hear the
+   untouched audio at the same moment, and press **R** to replay from the
+   marker. Click outside the shaded section to audition another 30 seconds.
 3. **Fine-tune:** the sliders start from the take you picked and change the
    sound live. What you hear is exactly what gets saved. The browser and
    the export were checked against each other sample by sample, see

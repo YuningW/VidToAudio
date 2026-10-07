@@ -1,7 +1,9 @@
 // Waveform on a canvas.
 //   mode "select": two handles choose the part of the video you want.
-//   mode "window": a band shows the preview stretch; drag it to move it.
-// Emits: select {start, end, final}, window {start}, seek {t}.
+//   mode "window": a band shows the preview section. Inside it, click to set
+//   the marker takes start from, drag to mark a phrase to loop. Click outside
+//   it to move the section there.
+// Emits: select {start, end, final}, window {start}, seek {t}, phrase {start, end}.
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -15,6 +17,8 @@ export class Wave extends EventTarget {
     this.sel = null;
     this.win = null;      // [start, length]
     this.playhead = null;
+    this.phrase = null;   // [start, end] seconds
+    this.cue = null;      // seconds
     this.minLen = 5;
     new ResizeObserver(() => this.draw()).observe(canvas);
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => this.draw());
@@ -26,6 +30,8 @@ export class Wave extends EventTarget {
   setSelection(s, e) { this.sel = [s, e]; this.draw(); }
   setWindow(s, len) { this.win = [s, len]; this.draw(); }
   setPlayhead(t) { this.playhead = t; this.draw(); }
+  setPhrase(r) { this.phrase = r; this.draw(); }
+  setCue(t) { this.cue = t; this.draw(); }
 
   _x(t) { const [a, b] = this.view; return ((t - a) / (b - a)) * this.w; }
   _t(x) { const [a, b] = this.view; return a + (x / this.w) * (b - a); }
@@ -77,6 +83,22 @@ export class Wave extends EventTarget {
       g.fillRect(x0, 0, 2, h);
       g.fillRect(x1 - 2, 0, 2, h);
     }
+    if (this.phrase) {
+      const x0 = this._x(this.phrase[0]), x1 = this._x(this.phrase[1]);
+      g.fillStyle = soft;
+      g.fillRect(x0, 0, x1 - x0, h);
+      g.fillRect(x0, 0, x1 - x0, h);   // twice: the phrase reads darker than the section
+      g.fillStyle = signal;
+      g.fillRect(x0, h - 4, x1 - x0, 4);
+    }
+    if (this.cue != null) {
+      const x = this._x(this.cue);
+      g.fillStyle = signal;
+      g.beginPath();
+      g.moveTo(x - 6, 0); g.lineTo(x + 6, 0); g.lineTo(x, 8); g.closePath();
+      g.fill();
+      g.fillRect(x - 0.75, 0, 1.5, h);
+    }
     if (this.mode === "select" && this.sel) {
       for (const t of this.sel) {
         const x = this._x(t);
@@ -106,7 +128,7 @@ export class Wave extends EventTarget {
       const ds = Math.abs(x - this._x(this.sel[0])), de = Math.abs(x - this._x(this.sel[1]));
       if (Math.min(ds, de) < 12) drag = ds <= de ? "start" : "end";
     } else if (this.mode === "window" && this.win) {
-      if (t >= this.win[0] && t <= this.win[0] + this.win[1]) drag = { grab: t - this.win[0], moved: false };
+      if (t >= this.win[0] && t <= this.win[0] + this.win[1]) drag = { from: t, x, moved: false };
     }
     if (!drag) {
       if (this.mode === "window" && this.win) {
@@ -128,10 +150,11 @@ export class Wave extends EventTarget {
       } else if (drag === "end") {
         this.sel[1] = Math.min(this.peaks.duration, Math.max(tt, this.sel[0] + this.minLen));
         this._emit("select", { start: this.sel[0], end: this.sel[1], final: false });
-      } else {
+      } else if (drag.moved || Math.abs(ev.clientX - rect.left - drag.x) > 4) {
         drag.moved = true;
-        const [a, b] = this.view;
-        this.win[0] = Math.max(a, Math.min(b - this.win[1], tt - drag.grab));
+        const lo = this.win[0], hi = this.win[0] + this.win[1];
+        const a = Math.max(lo, Math.min(drag.from, tt)), b = Math.min(hi, Math.max(drag.from, tt));
+        this.phrase = [a, b];
       }
       this.draw();
     };
@@ -140,8 +163,12 @@ export class Wave extends EventTarget {
       this.c.removeEventListener("pointerup", up);
       if (drag === "start" || drag === "end") {
         this._emit("select", { start: this.sel[0], end: this.sel[1], final: true });
+      } else if (drag.moved && this.phrase && this.phrase[1] - this.phrase[0] >= 1) {
+        this._emit("phrase", { start: this.phrase[0], end: this.phrase[1] });
       } else if (drag.moved) {
-        this._emit("window", { start: this.win[0] });
+        this.phrase = null;   // too short to loop: treat as a click
+        this.draw();
+        this._emit("seek", { t: drag.from });
       } else {
         this._emit("seek", { t: this._t(ev.clientX - rect.left) });
       }

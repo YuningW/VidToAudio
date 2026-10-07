@@ -66,6 +66,8 @@ const S = {
   takeId: "original", params: {}, level: "natural",
   preview: { start: 0, length: 30 }, takesKey: null, sourceShown: false,
   stopAt: null, lastExportShown: null,
+  cue: 0, phrase: null,                      // seconds inside the loaded section
+  compare: new Set(), turns: { on: false, ids: [], i: 0 },
 };
 let engine, waveFull, waveRange, cover;
 
@@ -232,15 +234,30 @@ function wire() {
   });
   waveRange.addEventListener("seek", (e) => {
     const rel = e.detail.t - (S.job.range.start + S.preview.start);
+    if (S.phrase && (rel < S.phrase[0] || rel > S.phrase[1])) clearPhrase(false);
+    S.cue = rel;
     engine.seek(rel);
+    compareChanged();
+  });
+  waveRange.addEventListener("phrase", (e) => {
+    const ws = S.job.range.start + S.preview.start;
+    S.phrase = [e.detail.start - ws, e.detail.end - ws];
+    S.cue = S.phrase[0];
+    $("listen").pause();
+    engine.setRegion(S.phrase, S.cue);
+    if (!engine.playing) engine.play(S.cue);
+    tick();
+    compareChanged();
   });
   waveRange.addEventListener("window", (e) => moveWindow(e.detail.start - S.job.range.start));
+  $("from-marker").addEventListener("change", () => { saveUi(); compareChanged(); });
+  $("turns").addEventListener("click", () => (S.turns.on ? stopTurns() : startTurns()));
   const hold = $("hold-original");
-  const holdOn = () => { hold.classList.add("active"); engine.setParams(S.defaults); };
-  const holdOff = () => { if (!hold.classList.contains("active")) return; hold.classList.remove("active"); engine.setParams(S.params); };
+  const holdOn = () => { hold.classList.add("active"); engine.setParams(S.defaults); nowPlaying(); };
+  const holdOff = () => { if (!hold.classList.contains("active")) return; hold.classList.remove("active"); engine.setParams(S.params); nowPlaying(); };
   hold.addEventListener("pointerdown", (e) => { e.preventDefault(); hold.setPointerCapture(e.pointerId); holdOn(); });
   for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) hold.addEventListener(ev, holdOff);
-  $("tune-reset").addEventListener("click", () => selectTake(S.takeId));
+  $("tune-reset").addEventListener("click", () => selectTake(S.takeId, null, { play: false }));
   $("save-clip").addEventListener("click", saveClip);
 
   document.addEventListener("keydown", (e) => {
@@ -248,6 +265,7 @@ function wire() {
     if (!engine.ready) return;
     if (e.code === "Space") { e.preventDefault(); $("listen").pause(); engine.toggle(); tick(); return; }
     if (e.key.toLowerCase() === "o") { if (!e.repeat) holdOn(); return; }
+    if (e.key.toLowerCase() === "r") { $("listen").pause(); engine.play(startPoint()); tick(); return; }
     const i = LETTERS.indexOf(e.key.toUpperCase());
     if (i >= 0 && i < S.cfg.presets.length && takeAvailable(S.cfg.presets[i])) { selectTake(S.cfg.presets[i].id); }
   });
@@ -498,6 +516,11 @@ function tick() {
       waveFull.setPlayhead(audio.currentTime);
       $("listen-time").textContent = fmt(audio.currentTime);
     }
+    if (S.turns.on && engine.playing && engine.loops() >= 1 && !$("hold-original").classList.contains("active")) {
+      // the phrase finished in this take: move on to the next one
+      S.turns.i = (S.turns.i + 1) % S.turns.ids.length;
+      selectTake(S.turns.ids[S.turns.i], null, { fromTurns: true });
+    }
     if (engine.ready && S.job?.range) {
       const abs = S.job.range.start + S.preview.start + engine.position();
       waveRange.setPlayhead(abs);
@@ -538,8 +561,6 @@ async function showTakes(job) {
     li.querySelector("span").textContent = n.text;
     notes.append(li);
   }
-  renderTakeList(a);
-
   const ui = { ...fromExport(job), ...store.get(job.id) };
   if (ui.level && S.cfg.levels[ui.level] && ui.level !== S.level) setLevel(ui.level, false);
   const len = job.range.end - job.range.start;
@@ -551,9 +572,18 @@ async function showTakes(job) {
   updateWindowLabel();
 
   const first = ui.takeKey === job.prepared_key && ui.takeId ? ui.takeId : (a.suggested[0] || "original");
+  S.cue = 0; S.phrase = null; stopTurns();
+  if (ui.fromMarker === false) $("from-marker").checked = false;
+  S.compare = new Set((ui.compare || ["original", ...a.suggested]).filter((id) => {
+    const p = S.cfg.presets.find((x) => x.id === id);
+    return p && takeAvailable(p);
+  }).slice(0, 5));
+  renderTakeList(a);
   $("level-read").textContent = "Loading the takes…";
   await engine.load(job.id, S.preview.start, S.preview.length);
-  selectTake(first, ui.takeKey === job.prepared_key ? ui.params : null);
+  waveRange.setPhrase(null);
+  selectTake(first, ui.takeKey === job.prepared_key ? ui.params : null, { play: false });
+  compareChanged();
   engine.warm(S.cfg.presets.map((p) => p.set));
 }
 
@@ -579,7 +609,19 @@ function renderTakeList(a) {
     li.dataset.id = p.id;
     li.tabIndex = 0;
     const sets = Object.entries(p.set).map(([k, v]) => describe(k, v)).join(", ");
-    li.innerHTML = `<span class="letter">${LETTERS[i]}</span><div><div class="name"></div><p class="about"></p>${sets ? '<p class="sets"></p>' : ""}</div>`;
+    li.innerHTML = `<span class="letter">${LETTERS[i]}</span><div><div class="name"></div><p class="about"></p>${sets ? '<p class="sets"></p>' : ""}</div>
+      <button type="button" class="pick" aria-pressed="${S.compare.has(p.id)}" aria-label="Include ${LETTERS[i]} in Play in turn" title="Include in Play in turn"><svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3L13 4.5"/></svg></button>`;
+    li.querySelector(".pick").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (S.compare.has(p.id)) S.compare.delete(p.id); else S.compare.add(p.id);
+      e.currentTarget.setAttribute("aria-pressed", String(S.compare.has(p.id)));
+      if (S.turns.on) {
+        S.turns.ids = turnIds();
+        if (S.turns.ids.length < 2) stopTurns();
+      }
+      saveUi();
+      compareChanged();
+    });
     const name = li.querySelector(".name");
     name.textContent = p.name;
     if (a.suggested.includes(p.id)) name.insertAdjacentHTML("beforeend", '<span class="badge">Suggested</span>');
@@ -598,16 +640,93 @@ function describe(key, v) {
   return p.unit === "%" ? `${p.label.toLowerCase()} ${v}%` : `${p.label.toLowerCase()} ${v > 0 ? "+" : ""}${v} dB`;
 }
 
-function selectTake(id, params = null) {
+// play: start this take from the marker (or the phrase start) so every take
+// is heard on the same words. fromTurns: called by Play in turn.
+function selectTake(id, params = null, { play = true, fromTurns = false } = {}) {
   let preset = S.cfg.presets.find((p) => p.id === id) || S.cfg.presets[0];
   if (!takeAvailable(preset)) preset = S.cfg.presets[0];
+  if (!fromTurns && play) stopTurns();
   S.takeId = preset.id;
   S.params = { ...S.defaults, ...preset.set, ...(params || {}) };
   for (const li of document.querySelectorAll(".take")) li.setAttribute("aria-selected", String(li.dataset.id === preset.id));
-  paramsChanged();
+  const restart = engine.ready && (fromTurns || (play && $("from-marker").checked));
+  paramsChanged(!restart);
+  if (restart) {
+    $("listen").pause();
+    engine.switchTo(S.params, startPoint());
+    tick();
+  }
 }
 
-function paramsChanged() {
+function startPoint() { return S.phrase ? S.phrase[0] : S.cue; }
+
+function turnIds() {
+  return S.cfg.presets.filter((p) => S.compare.has(p.id) && takeAvailable(p)).map((p) => p.id);
+}
+
+function startTurns() {
+  const ids = turnIds();
+  if (ids.length < 2) return toast("Tick at least two takes to play them in turn.");
+  if (!S.phrase) {   // no phrase yet: use 8 seconds from the marker
+    const len = Math.min(8, engine.duration);
+    const a = Math.max(0, Math.min(S.cue, engine.duration - len));
+    S.phrase = [a, a + len];
+    const ws = S.job.range.start + S.preview.start;
+    waveRange.setPhrase([ws + a, ws + a + len]);
+    engine.setRegion(S.phrase, a);
+  }
+  const at = ids.indexOf(S.takeId);
+  S.turns = { on: true, ids, i: at >= 0 ? at : 0 };
+  selectTake(ids[S.turns.i], null, { fromTurns: true });
+  compareChanged();
+}
+
+function stopTurns() {
+  if (!S.turns.on) return;
+  S.turns.on = false;
+  compareChanged();
+}
+
+function clearPhrase(restart = true) {
+  S.phrase = null;
+  waveRange.setPhrase(null);
+  stopTurns();
+  engine.setRegion(null, restart ? S.cue : undefined);
+  compareChanged();
+}
+
+function nowPlaying() {
+  const holding = $("hold-original").classList.contains("active");
+  const i = S.cfg.presets.findIndex((p) => p.id === S.takeId);
+  const adjusted = !$("tune-reset").hidden;
+  $("now-take").textContent = holding ? "A  Original (holding)" : `${LETTERS[i]}  ${S.cfg.presets[i].name}${adjusted ? ", adjusted" : ""}`;
+}
+
+function compareChanged() {
+  if (!S.job?.range) return;
+  const ws = S.job.range.start + S.preview.start;
+  waveRange.setCue(ws + startPoint());
+  $("marker-time").textContent = fmt(ws + startPoint(), 1);
+  const line = $("phrase-line");
+  line.innerHTML = "";
+  if (S.phrase) {
+    line.append(`Looping ${fmt(ws + S.phrase[0], 1)} to ${fmt(ws + S.phrase[1], 1)}.`);
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "link", textContent: "Stop looping" });
+    b.addEventListener("click", () => clearPhrase());
+    line.append(b);
+  } else {
+    line.append("Click the waveform to move the marker. Drag across it to loop one phrase.");
+  }
+  const ids = turnIds();
+  const letters = ids.map((id) => LETTERS[S.cfg.presets.findIndex((p) => p.id === id)]).join(", ");
+  const btn = $("turns");
+  btn.setAttribute("aria-pressed", String(S.turns.on));
+  btn.textContent = S.turns.on ? "Stop playing in turn" : ids.length >= 2 ? `Play ${letters} in turn` : "Play in turn";
+  btn.disabled = !S.turns.on && ids.length < 2;
+  btn.title = ids.length < 2 ? "Tick at least two takes in the list" : "Plays the phrase once in each ticked take, round and round";
+}
+
+function paramsChanged(apply = true) {
   const preset = S.cfg.presets.find((p) => p.id === S.takeId);
   const base = { ...S.defaults, ...preset.set };
   let adjusted = false;
@@ -622,7 +741,8 @@ function paramsChanged() {
   const letter = LETTERS[S.cfg.presets.indexOf(preset)];
   $("tune-from").textContent = adjusted ? `${letter}, ${preset.name}, adjusted by you.` : `Starting from ${letter}, ${preset.name}.`;
   $("tune-reset").hidden = !adjusted;
-  if (!$("hold-original").classList.contains("active")) engine.setParams(S.params);
+  if (apply && !$("hold-original").classList.contains("active")) engine.setParams(S.params);
+  nowPlaying();
   saveUi();
   updateSummary();
 }
@@ -638,7 +758,10 @@ function setLevel(key, save = true) {
 async function moveWindow(relStart) {
   const len = S.job.range.end - S.job.range.start;
   S.preview.start = Math.max(0, Math.min(len - S.preview.length, relStart));
+  S.cue = 0; S.phrase = null; stopTurns();
+  waveRange.setPhrase(null);
   waveRange.setWindow(S.job.range.start + S.preview.start, S.preview.length);
+  compareChanged();
   updateWindowLabel();
   $("level-read").textContent = "Loading this section…";
   try {
@@ -651,7 +774,7 @@ async function moveWindow(relStart) {
 
 function updateWindowLabel() {
   const a = S.job.range.start + S.preview.start;
-  $("window-label").textContent = `Takes play ${fmt(a, 0)} to ${fmt(a + S.preview.length, 0)}. Drag the band to hear another section.`;
+  $("window-label").textContent = `Section ${fmt(a, 0)} to ${fmt(a + S.preview.length, 0)}. Click the waveform outside the band to move to another section.`;
 }
 
 async function saveClip() {
@@ -776,6 +899,7 @@ function saveUi() {
     takeId: S.takeId, params: S.params, takeKey: S.takesKey,
     previewStart: S.preview.start, previewKey: S.takesKey,
     meta: meta(), cover: cover?.spec, level: S.level,
+    compare: [...S.compare], fromMarker: $("from-marker").checked,
   });
 }
 

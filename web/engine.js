@@ -52,9 +52,14 @@ export function buildGraph(ctx, cfg) {
   return { inputs, width: { ll, rl, lr, rr }, eq, out: last };
 }
 
-export function applyParams(n, p, ctx, smooth) {
+// timing: false = set now, true = glide (live slider), number = switch
+// exactly at that context time (restarting a take: nothing of the old take leaks in)
+export function applyParams(n, p, ctx, timing) {
   const set = (param, v) => {
-    if (smooth) param.setTargetAtTime(v, ctx.currentTime, 0.015);
+    if (typeof timing === "number") {
+      param.cancelScheduledValues(ctx.currentTime);
+      param.setValueAtTime(v, timing);
+    } else if (timing) param.setTargetAtTime(v, ctx.currentTime, 0.015);
     else param.value = v;
   };
   const g = stemGains(p);
@@ -126,6 +131,7 @@ export class Engine extends EventTarget {
     this.playing = false;
     this.offset = 0;
     this.loop = true;
+    this.region = null;   // [start, end] seconds inside the loaded section: the phrase to loop
     this.cache = new Map();
     this.levelToken = 0;
     this.lufs = null;
@@ -147,7 +153,9 @@ export class Engine extends EventTarget {
     const fullRange = LIMIT_DB + -LIMIT_DB / 20;
     const makeup = this.ctx.createGain();
     makeup.gain.value = Math.pow(10, (0.6 * fullRange) / 20);
-    this.nodes.out.connect(this.level).connect(limiter).connect(makeup).connect(this.ctx.destination);
+    // fader: a 12 ms dip around restarts so jumping back never clicks
+    this.fader = this.ctx.createGain();
+    this.nodes.out.connect(this.level).connect(limiter).connect(makeup).connect(this.fader).connect(this.ctx.destination);
     applyParams(this.nodes, this.params, this.ctx, false);
     return this.ctx;
   }
@@ -164,6 +172,7 @@ export class Engine extends EventTarget {
     this.buffers = Object.fromEntries(this.cfg.stems.map((s, i) => [s, bufs[i]]));
     this.duration = bufs[0].duration;
     this.offset = 0;
+    this.region = null;
     this.cache.clear();
     this.lufs = null;
     await this.relevel(true);
@@ -185,6 +194,15 @@ export class Engine extends EventTarget {
     if (cached !== undefined) { this._applyLevel(cached, true); return; }
     clearTimeout(this._t);
     this._t = setTimeout(() => this.relevel(), measureNow ? 0 : 180);
+  }
+
+  // Change take and play it from `at`, switching settings at the exact restart.
+  switchTo(p, at) {
+    this.params = { ...this.defaults, ...p };
+    const when = this.play(at, true);
+    const cached = this.cache.get(this._key(this.params));
+    if (cached !== undefined) this._applyLevel(cached, when);
+    else { clearTimeout(this._t); this._t = setTimeout(() => this.relevel(), 0); }
   }
 
   _key(p) { return JSON.stringify(this.cfg.params.map((d) => p[d.key])); }
@@ -226,43 +244,72 @@ export class Engine extends EventTarget {
     }
   }
 
-  _applyLevel(lufs, smooth) {
+  _applyLevel(lufs, timing) {
     if (lufs == null) return;
     this.lufs = lufs;
     const db = lufs <= -70 ? 0 : Math.max(-30, Math.min(30, this.target - lufs));
     const g = Math.pow(10, db / 20);
-    if (smooth) this.level.gain.setTargetAtTime(g, this.ctx.currentTime, 0.03);
+    if (typeof timing === "number") {
+      this.level.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.level.gain.setValueAtTime(g, timing);
+    } else if (timing) this.level.gain.setTargetAtTime(g, this.ctx.currentTime, 0.03);
     else this.level.gain.value = g;
     this._emit("level", { lufs, gain: db });
   }
 
-  play(at) {
-    if (!this.buffers) return;
+  // Returns the context time the new playback starts at.
+  play(at, newParams = false) {
+    if (!this.buffers) return null;
     const ctx = this._ctx();
     ctx.resume();
-    this._stopSources();
-    const pos = at ?? this.offset;
-    const when = ctx.currentTime + 0.03;
+    const now = ctx.currentTime;
+    const f = this.fader.gain;
+    f.cancelScheduledValues(now);
+    let when = now + 0.03;
+    if (this.playing) {
+      // fade the old playback out, then start the new one from silence
+      f.setValueAtTime(f.value, now);
+      f.linearRampToValueAtTime(0, now + 0.012);
+      this._stopSources(now + 0.014);
+      when = now + 0.016;
+      f.setValueAtTime(0, when);
+    } else {
+      f.setValueAtTime(0, now);
+    }
+    f.linearRampToValueAtTime(1, when + 0.012);
+    if (newParams) applyParams(this.nodes, this.params, ctx, when);
+    const [ls, le] = this._loopBounds();
+    let pos = at ?? this.offset;
+    if (this.region && (pos < ls || pos >= le)) pos = ls;
+    pos = Math.max(0, Math.min(pos, this.duration - 0.01));
     this.sources = this.cfg.stems.map((s) => {
       const src = ctx.createBufferSource();
       src.buffer = this.buffers[s];
       src.loop = this.loop;
+      if (this.region) { src.loopStart = ls; src.loopEnd = le; }
       src.connect(this.nodes.inputs[s]);
-      src.start(when, Math.min(pos, this.duration - 0.01));
+      src.start(when, pos);
       return src;
     });
+    const mine = this.sources;
     this.sources[0].onended = () => {
-      if (this.sources.length && !this.loop) { this.playing = false; this.offset = 0; this._emit("state"); }
+      if (this.sources === mine && !this.loop) { this.playing = false; this.offset = 0; this._emit("state"); }
     };
-    this.t0 = when - pos;
+    this.startTime = when;
+    this.startPos = pos;
     this.playing = true;
     this._emit("state");
+    return when;
   }
 
   pause() {
     if (!this.playing) return;
     this.offset = this.position();
-    this._stopSources();
+    const f = this.fader.gain, now = this.ctx.currentTime;
+    f.cancelScheduledValues(now);
+    f.setValueAtTime(f.value, now);
+    f.linearRampToValueAtTime(0, now + 0.012);
+    this._stopSources(now + 0.014);
     this.playing = false;
     this._emit("state");
   }
@@ -280,16 +327,37 @@ export class Engine extends EventTarget {
     for (const s of this.sources) s.loop = on;
   }
 
-  position() {
-    if (!this.playing || !this.ctx) return this.offset;
-    const t = Math.max(0, this.ctx.currentTime - this.t0);
-    return this.loop ? t % this.duration : Math.min(t, this.duration);
+  // Loop just [start, end] (seconds in the section), or the whole section with null.
+  setRegion(r, playFrom) {
+    this.region = r && r[1] - r[0] >= 0.5 ? [Math.max(0, r[0]), Math.min(this.duration, r[1])] : null;
+    if (this.playing) this.play(playFrom ?? (this.region ? this.region[0] : this.position()));
+    else if (this.region) this.offset = this.region[0];
   }
 
-  _stopSources() {
+  _loopBounds() { return this.region || [0, this.duration]; }
+
+  _raw() { return this.startPos + Math.max(0, this.ctx.currentTime - this.startTime); }
+
+  position() {
+    if (!this.playing || !this.ctx) return this.offset;
+    const raw = this._raw();
+    if (!this.loop) return Math.min(raw, this.duration);
+    const [ls, le] = this._loopBounds();
+    return raw < le ? raw : ls + ((raw - le) % (le - ls));
+  }
+
+  // How many times playback has jumped back to the loop start since it began.
+  loops() {
+    if (!this.playing || !this.ctx || !this.loop) return 0;
+    const raw = this._raw();
+    const [ls, le] = this._loopBounds();
+    return raw < le ? 0 : 1 + Math.floor((raw - le) / (le - ls));
+  }
+
+  _stopSources(at) {
     const old = this.sources;
     this.sources = [];
-    for (const s of old) { try { s.onended = null; s.stop(); } catch { /* already stopped */ } }
+    for (const s of old) { try { s.onended = null; s.stop(at); } catch { /* already stopped */ } }
   }
 
   _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }

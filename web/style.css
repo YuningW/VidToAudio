@@ -195,11 +195,23 @@ kbd { font: inherit; font-size: 13px; padding: 1px 5px; border: 1px solid var(--
 }
 .hold.active { background: var(--ink); color: var(--paper); border-style: solid; border-color: var(--ink); }
 
+.now-take { font-weight: 700; font-size: 17px; }
+.compare {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px;
+  margin: 10px 0 0; padding: 0 4px;
+}
+.compare .check { min-height: 32px; font-size: 14px; }
+.compare .time { color: var(--signal); }
+.phrase-line { margin: 0; font-size: 14px; color: var(--ink-2); flex: 1; min-width: 240px; }
+.phrase-line .link { margin-left: 8px; }
+#turns[aria-pressed="true"] { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
+.window-label { margin: 6px 4px 0; }
+.take-tip { margin: -6px 0 10px; }
 .bench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; margin-top: 24px; }
 .keys { font-weight: 400; font-size: 13px; margin-left: 8px; }
 #take-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .take {
-  display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start;
+  display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: start;
   padding: 12px 10px 12px 8px; border-bottom: 1px solid var(--line); cursor: pointer;
   border-left: 3px solid transparent;
 }
@@ -213,6 +225,13 @@ kbd { font: inherit; font-size: 13px; padding: 1px 5px; border: 1px solid var(--
 .take .name { font-weight: 600; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .take .about { font-size: 14px; color: var(--ink-2); margin: 2px 0 0; }
 .take .sets { font-size: 13px; color: var(--ink-3); margin: 3px 0 0; font-variant-numeric: tabular-nums; }
+.pick {
+  width: 26px; height: 26px; margin-top: 2px; border-radius: 5px; border: 1.5px solid var(--ink-3);
+  background: transparent; display: grid; place-items: center; padding: 0;
+}
+.pick svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2.6; fill: none; visibility: hidden; }
+.pick[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.pick[aria-pressed="true"] svg { visibility: visible; }
 .badge { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--ink); color: var(--paper); }
 .badge.avoid { background: transparent; color: var(--warn); border: 1px solid currentColor; }
 

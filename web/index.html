@@ -122,16 +122,26 @@
           <canvas id="wave-range" class="wave short" aria-label="Your part. The shaded band is the 30 seconds the takes play; drag it to hear another section."></canvas>
           <div class="player-meta">
             <span class="time" id="take-time">0:00</span>
-            <span class="muted" id="window-label"></span>
+            <strong class="now-take" id="now-take"></strong>
             <span class="muted level-read" id="level-read"></span>
           </div>
         </div>
         <button type="button" class="hold" id="hold-original" title="Hold (or hold O) to hear the untouched original">Hold for original</button>
       </div>
+      <div class="compare">
+        <label class="check">
+          <input type="checkbox" id="from-marker" checked>
+          <span>Start every take at the marker <span class="time" id="marker-time"></span></span>
+        </label>
+        <p class="phrase-line" id="phrase-line"></p>
+        <button type="button" class="ghost small" id="turns"></button>
+      </div>
+      <p class="muted small-text window-label" id="window-label"></p>
 
       <div class="bench">
         <div class="take-list">
           <h3>Pick a take <span class="muted keys" id="keys-hint"></span></h3>
+          <p class="muted small-text take-tip">Tick the takes you want in <em>Play in turn</em>.</p>
           <ul id="take-list" role="listbox" aria-label="Takes"></ul>
         </div>
         <div class="tune">
